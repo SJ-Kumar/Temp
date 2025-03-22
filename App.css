@@ -1,0 +1,118 @@
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.container {
+  text-align: center;
+  padding: 20px;
+}
+
+.video-feed {
+  width: 960px;
+  height: 540px;
+  border-radius: 8px;
+  box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.2);
+}
+
+.captured-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.captured-image {
+  width: 400px;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.2);
+  margin-bottom: 15px;
+}
+
+.retake-button {
+  background-color: #C00000;
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  font-size: 18px;
+  font-weight: bold;
+  border-radius: 8px;
+  cursor: pointer;
+  display: block; /* Ensures it takes full width */
+  text-align: center; /* Centers the text */
+  margin: 15px auto; /* Centered below the camera */
+  transition: 0.3s ease;
+}
+
+.retake-button:hover {
+  background-color: darkred;
+}
+
+.feedback {
+  font-size: 18px;
+  font-weight: bold;
+  color: #C00000;
+  padding: 10px;
+  border-radius: 5px;
+  border-color: #C00000;
+  display: block; /* Ensures it takes full width */
+  text-align: center; /* Centers the text */
+  margin: 15px auto; /* Centered below the camera */
+  width: fit-content;
+}
+
+.loader-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 540px; /* Match video height */
+}
+
+.loader {
+  border: 6px solid #f3f3f3;
+  border-top: 6px solid #C00000;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
