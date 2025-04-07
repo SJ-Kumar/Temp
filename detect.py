@@ -5,99 +5,86 @@ from imgocr import OcrEngine
 
 ocr = OcrEngine(lang='eng')
 
-# Step 1: Align the test image to the template
-def align_images(template_img, test_img):
-    gray_template = cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY)
-    gray_test = cv2.cvtColor(test_img, cv2.COLOR_BGR2GRAY)
+# Step 1: Extract field regions (bounding boxes) from the template image
+def get_template_fields_via_ocr(template_img):
+    ocr_results = ocr.image_to_string(template_img, with_boxes=True)
+    field_boxes = {}
+    for i, field in enumerate(ocr_results):
+        x1, y1, x2, y2 = field['box']
+        label = field['word'].strip().lower() if field['word'].strip() else f"field_{i}"
+        field_boxes[label] = (x1, y1, x2, y2)
+    return field_boxes
 
-    orb = cv2.ORB_create(5000)
-    kp1, des1 = orb.detectAndCompute(gray_template, None)
-    kp2, des2 = orb.detectAndCompute(gray_test, None)
-
-    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = matcher.match(des1, des2)
-    matches = sorted(matches, key=lambda x: x.distance)
-
-    pts1 = np.float32([kp1[m.queryIdx].pt for m in matches[:50]]).reshape(-1, 1, 2)
-    pts2 = np.float32([kp2[m.trainIdx].pt for m in matches[:50]]).reshape(-1, 1, 2)
-
-    matrix, _ = cv2.findHomography(pts2, pts1, cv2.RANSAC, 5.0)
-    aligned_test = cv2.warpPerspective(test_img, matrix, (template_img.shape[1], template_img.shape[0]))
-
-    return aligned_test
-
-# Step 2: Tampering detection using SSIM
-def detect_visual_tampering(template_img, aligned_img):
-    gray_template = cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY)
-    gray_aligned = cv2.cvtColor(aligned_img, cv2.COLOR_BGR2GRAY)
-
-    score, diff = ssim(gray_template, gray_aligned, full=True)
-    diff = (diff * 255).astype("uint8")
-
-    thresh = cv2.threshold(diff, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    mask = np.zeros_like(template_img)
-    for c in contours:
-        if cv2.contourArea(c) > 50:
-            x, y, w, h = cv2.boundingRect(c)
-            cv2.rectangle(mask, (x, y), (x+w, y+h), (0, 0, 255), 2)
-
-    return mask, contours
-
-# Step 3: Font style consistency check using image patches
-def detect_font_mismatch(template_img, aligned_img):
-    template_ocr = ocr.image_to_string(template_img, with_boxes=True)
-    aligned_ocr = ocr.image_to_string(aligned_img, with_boxes=True)
-
-    font_mismatch_boxes = []
-
-    for t, a in zip(template_ocr, aligned_ocr):
-        x1, y1, x2, y2 = t['box']
-        t_crop = cv2.cvtColor(template_img[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
-        a_crop = cv2.cvtColor(aligned_img[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
-
-        # Resize both to same shape for fair comparison
+# Step 2: Structural tampering detection using SSIM
+def detect_structural_tampering(template_img, test_img, field_boxes):
+    output = test_img.copy()
+    tampered = []
+    for field, (x1, y1, x2, y2) in field_boxes.items():
         try:
-            t_crop = cv2.resize(t_crop, (50, 50))
-            a_crop = cv2.resize(a_crop, (50, 50))
+            t_crop = cv2.cvtColor(template_img[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+            test_crop = cv2.cvtColor(test_img[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
 
-            font_diff_score = ssim(t_crop, a_crop)
-            if font_diff_score < 0.7:
-                font_mismatch_boxes.append(((x1, y1, x2, y2), font_diff_score))
+            t_crop = cv2.resize(t_crop, (100, 40))
+            test_crop = cv2.resize(test_crop, (100, 40))
+
+            score = ssim(t_crop, test_crop)
+            if score < 0.7:
+                tampered.append((field, (x1, y1, x2, y2), score))
+                cv2.rectangle(output, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                cv2.putText(output, f"Tampered: {field}", (x1, y1 - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         except:
             continue
+    return output, tampered
 
-    return font_mismatch_boxes
+# Step 3: Font style inconsistency detection using SSIM in OCR regions
+def detect_font_issues(template_img, test_img, field_boxes):
+    output = test_img.copy()
+    mismatched = []
+    for field, (x1, y1, x2, y2) in field_boxes.items():
+        try:
+            t_crop = cv2.cvtColor(template_img[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+            test_crop = cv2.cvtColor(test_img[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
 
-# Step 4: Visualize all anomalies
-def visualize_results(image, tampered_contours, font_mismatches):
-    output = image.copy()
+            t_crop = cv2.resize(t_crop, (100, 40))
+            test_crop = cv2.resize(test_crop, (100, 40))
 
-    # Draw SSIM tampering regions
-    for c in tampered_contours:
-        if cv2.contourArea(c) > 50:
-            x, y, w, h = cv2.boundingRect(c)
-            cv2.rectangle(output, (x, y), (x+w, y+h), (0, 0, 255), 2)
-            cv2.putText(output, "Tampered", (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            score = ssim(t_crop, test_crop)
+            if score < 0.7:
+                mismatched.append((field, (x1, y1, x2, y2), score))
+                cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                cv2.putText(output, f"Font Mismatch: {field}", (x1, y2 + 15),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+        except:
+            continue
+    return output, mismatched
 
-    # Draw font mismatch regions
-    for box, score in font_mismatches:
-        x1, y1, x2, y2 = box
-        cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 255), 2)
-        cv2.putText(output, f"Font Mismatch ({score:.2f})", (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+# Step 4: Run the detection pipeline
+def detect_id_card_tampering(template_path, test_path):
+    template = cv2.imread(template_path)
+    test = cv2.imread(test_path)
 
-    return output
+    if template.shape != test.shape:
+        test = cv2.resize(test, (template.shape[1], template.shape[0]))
 
-# === Main Execution ===
-template = cv2.imread("template.jpg")
-test = cv2.imread("test.jpg")
+    field_boxes = get_template_fields_via_ocr(template)
 
-aligned = align_images(template, test)
-tamper_mask, tamper_contours = detect_visual_tampering(template, aligned)
-font_mismatches = detect_font_mismatch(template, aligned)
-final_output = visualize_results(aligned, tamper_contours, font_mismatches)
+    tamper_result, tampered_fields = detect_structural_tampering(template, test, field_boxes)
+    font_result, font_issues = detect_font_issues(template, test, field_boxes)
 
-cv2.imshow("Tampering Detected", final_output)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+    final_result = cv2.addWeighted(tamper_result, 0.5, font_result, 0.5, 0)
+
+    print("\n--- Tampered Fields ---")
+    for field, box, score in tampered_fields:
+        print(f"{field} | SSIM: {score:.3f} | Box: {box}")
+
+    print("\n--- Font Inconsistencies ---")
+    for field, box, score in font_issues:
+        print(f"{field} | SSIM: {score:.3f} | Box: {box}")
+
+    cv2.imshow("Tampering Detection Result", final_result)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+# Example usage
+detect_id_card_tampering("template.jpg", "test.jpg")
